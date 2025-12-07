@@ -219,11 +219,51 @@ const getMyPayments = async (req, res) => {
   }
 };
 
+/**
+ * GET /payments
+ * Get all payments (Admin only)
+ */
+const getAllPayments = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const payments = await Payment.find()
+      .populate('userId', 'name email')
+      .populate('contestId', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Payment.countDocuments();
+
+    res.status(200).json({
+      success: true,
+      data: payments,
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        limit,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getAllPayments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payments',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createPaymentIntent,
   confirmPayment,
   handleWebhook,
   getMyPayments,
+  getAllPayments,
 };
 
 
