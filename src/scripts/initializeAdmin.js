@@ -12,8 +12,6 @@ const initializeAdmin = async () => {
       console.log('Admin account already exists');
       return;
     }
-
-    // Create admin in Admin collection
     const admin = await Admin.create({
       email: 'admin@contestarena.com',
       password: 'admin123',
@@ -22,7 +20,6 @@ const initializeAdmin = async () => {
 
     console.log('Admin account created in Admin collection:', admin.email);
 
-    // Also create/update user in User collection with admin role
     let user = await User.findOne({ email: 'admin@contestarena.com' });
 
     if (user) {
@@ -31,7 +28,6 @@ const initializeAdmin = async () => {
       await user.save();
       console.log('User role updated to admin in User collection');
     } else {
-      // Create new user with admin role
       user = await User.create({
         email: 'admin@contestarena.com',
         name: 'Admin',
@@ -42,7 +38,7 @@ const initializeAdmin = async () => {
     }
   } catch (error) {
     console.error('Error initializing admin:', error);
-    // Don't throw error, just log it
+   
   }
 };
 
