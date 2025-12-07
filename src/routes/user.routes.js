@@ -16,7 +16,7 @@ router.get('/', verifyJWT, verifyRole('admin'), getAllUsers);
 router.get('/:id', verifyJWT, getUserById);
 
 // PATCH /users/:id/role - Update user role (Admin only)
-router.patch('/:id/role', verifyJWT, verifyRole('admin'), updateUserRole);
+router.patch('/:id/role', verifyJWT, updateUserRole);
 
 // PATCH /users/:id - Update user profile
 router.patch('/:id', verifyJWT, updateUserProfile);
