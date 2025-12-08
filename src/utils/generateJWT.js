@@ -9,6 +9,7 @@ const generateJWT = (user) => {
     email: user.email,
     role: user.role,
     userId: user._id.toString(),
+    name: user.name,
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, {

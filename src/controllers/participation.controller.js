@@ -256,11 +256,45 @@ const updateSubmission = async (req, res) => {
   }
 };
 
+/**
+ * GET /participations/my-received
+ * Get all submissions received for contests created by current user (Creator only)
+ */
+const getMyContestSubmissions = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Find all contests created by this user
+    const constests = await Contest.find({ creatorId: userId }).select('_id');
+    const contestIds = constests.map(c => c._id);
+
+    // Find submissions for these contests
+    const submissions = await Submission.find({ contestId: { $in: contestIds } })
+      .populate('userId', 'name email photoURL')
+      .populate('contestId', 'name')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: submissions,
+      count: submissions.length,
+    });
+  } catch (error) {
+    console.error('Error in getMyContestSubmissions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch received submissions',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createParticipation,
   getMyParticipations,
   getContestSubmissions,
   updateSubmission,
+  getMyContestSubmissions,
 };
 
 

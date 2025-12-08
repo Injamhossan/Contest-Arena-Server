@@ -5,6 +5,7 @@ const {
   getMyParticipations,
   getContestSubmissions,
   updateSubmission,
+  getMyContestSubmissions,
 } = require('../controllers/participation.controller');
 const verifyJWT = require('../middleware/verifyJWT');
 const verifyRole = require('../middleware/roleChecker');
@@ -25,6 +26,9 @@ router.get(
 
 // PATCH /participations/:id - Update submission
 router.patch('/:id', verifyJWT, updateSubmission);
+
+// GET /participations/my-received - Get all submissions for my contests (Creator only)
+router.get('/my-received', verifyJWT, verifyRole('creator'), getMyContestSubmissions);
 
 module.exports = router;
 

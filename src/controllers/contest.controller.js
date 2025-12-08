@@ -135,9 +135,13 @@ const createContest = async (req, res) => {
       contestType,
       deadline,
     } = req.body;
+    
+    console.log('Creating contest with body:', req.body);
+    console.log('User from token:', req.user);
 
     // Validation
     if (!name || !description || !price || !prizeMoney || !taskInstructions || !contestType || !deadline) {
+      console.error('Missing required fields');
       return res.status(400).json({
         success: false,
         message: 'Missing required fields',
@@ -146,6 +150,8 @@ const createContest = async (req, res) => {
 
     const userId = req.user.userId;
     const userName = req.user.name || 'Creator';
+
+    console.log('Creating contest for user:', userId, userName);
 
     const contest = await Contest.create({
       name,
@@ -161,6 +167,8 @@ const createContest = async (req, res) => {
       deadline: new Date(deadline),
       status: 'pending',
     });
+    
+    console.log('Contest created:', contest);
 
     res.status(201).json({
       success: true,
@@ -171,7 +179,7 @@ const createContest = async (req, res) => {
     console.error('Error in createContest:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create contest',
+      message: error.message || 'Failed to create contest', // Send actual error message
       error: error.message,
     });
   }
@@ -461,6 +469,44 @@ const getRecentWinners = async (req, res) => {
   }
 };
 
+/**
+ * GET /contests/my-created
+ * Get contests created by current user (Creator only)
+ */
+const getMyContests = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const contests = await Contest.find({ creatorId: userId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Contest.countDocuments({ creatorId: userId });
+
+    res.status(200).json({
+      success: true,
+      data: contests,
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        limit,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getMyContests:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch my contests',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllContests,
   getPopularContests,
@@ -471,6 +517,7 @@ module.exports = {
   updateContestStatus,
   declareWinner,
   getRecentWinners,
+  getMyContests,
 };
 
 

@@ -35,7 +35,8 @@ const createPaymentIntent = async (req, res) => {
     }
 
     // Verify price matches contest price
-    if (price !== contest.price) {
+    // Use loose equality or parse float to handle string/number differences
+    if (parseFloat(price) !== contest.price) {
       return res.status(400).json({
         success: false,
         message: 'Price does not match contest entry fee',
@@ -157,7 +158,7 @@ const confirmPayment = async (req, res) => {
 
 /**
  * POST /payments/webhook
- * Stripe webhook handler (optional, for production)
+ * Stripe webhook handler 
  */
 const handleWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];

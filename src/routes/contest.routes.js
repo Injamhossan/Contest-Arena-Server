@@ -10,6 +10,7 @@ const {
   updateContestStatus,
   declareWinner,
   getRecentWinners,
+  getMyContests,
 } = require('../controllers/contest.controller');
 const verifyJWT = require('../middleware/verifyJWT');
 const verifyRole = require('../middleware/roleChecker');
@@ -22,6 +23,9 @@ router.get('/popular', getPopularContests);
 
 // GET /contests/winners/recent - Get recent winners (Public)
 router.get('/winners/recent', getRecentWinners);
+
+// GET /contests/my-created - Get contests created by me (Creator only)
+router.get('/my-created', verifyJWT, verifyRole('creator'), getMyContests);
 
 // GET /contests/:id - Get contest by ID (Public)
 router.get('/:id', getContestById);
