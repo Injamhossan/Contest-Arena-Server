@@ -12,9 +12,6 @@ const verifyRole = (allowedRoles) => {
     }
 
     const userRole = req.user.role;
-
-    // If allowedRoles is an array, check if user role is in it
-    // If it's a string, check for exact match
     const isAllowed = Array.isArray(allowedRoles)
       ? allowedRoles.includes(userRole)
       : userRole === allowedRoles;

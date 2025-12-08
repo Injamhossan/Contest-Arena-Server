@@ -24,7 +24,6 @@ router.get(
   getContestSubmissions
 );
 
-// PATCH /participations/:id - Update submission
 router.patch('/:id', verifyJWT, updateSubmission);
 
 // GET /participations/my-received - Get all submissions for my contests (Creator only)

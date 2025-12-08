@@ -1,13 +1,11 @@
 const admin = require('firebase-admin');
 
-// Decode base64 encoded service account key from environment variable
+// Decode base64
 let serviceAccount;
 
 try {
   if (process.env.FB_SERVICE_KEY) {
-    // Decode from base64 to utf8 string
     const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8');
-    // Parse the JSON string
     serviceAccount = JSON.parse(decoded);
   } else {
     console.warn('FB_SERVICE_KEY not found in environment variables');
