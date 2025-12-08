@@ -95,7 +95,7 @@ const getContestById = async (req, res) => {
     const contest = await Contest.findById(id).populate(
       'creatorId',
       'name email photoURL'
-    );
+    ).lean();
 
     if (!contest) {
       return res.status(404).json({
@@ -103,6 +103,11 @@ const getContestById = async (req, res) => {
         message: 'Contest not found',
       });
     }
+
+    // Dynamic participant count
+    const Submission = require('../models/Submission.model');
+    const submissionCount = await Submission.countDocuments({ contestId: id });
+    contest.participantsCount = submissionCount;
 
     res.status(200).json({
       success: true,
@@ -469,6 +474,8 @@ const getRecentWinners = async (req, res) => {
   }
 };
 
+const Payment = require('../models/Payment.model');
+
 /**
  * GET /contests/my-created
  * Get contests created by current user (Creator only)
@@ -483,13 +490,43 @@ const getMyContests = async (req, res) => {
     const contests = await Contest.find({ creatorId: userId })
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean(); // Use lean to get plain JS objects
 
     const total = await Contest.countDocuments({ creatorId: userId });
 
+    // Fetch payments for these contests by this user
+    const contestIds = contests.map(c => c._id);
+    const payments = await Payment.find({
+      contestId: { $in: contestIds },
+      userId: userId,
+      paymentStatus: 'completed'
+    });
+
+    const Submission = require('../models/Submission.model');
+    const submissionCounts = await Submission.aggregate([
+      { $match: { contestId: { $in: contestIds } } },
+      { $group: { _id: '$contestId', count: { $sum: 1 } } }
+    ]);
+
+    const countMap = {};
+    submissionCounts.forEach(item => {
+      countMap[item._id.toString()] = item.count;
+    });
+
+    // Add paymentStatus and participantsCount to contests
+    const contestsWithPayment = contests.map(contest => {
+      const isPaid = payments.some(p => p.contestId.toString() === contest._id.toString());
+      return {
+        ...contest,
+        participantsCount: countMap[contest._id.toString()] || 0,
+        paymentStatus: isPaid ? 'Paid' : 'Unpaid'
+      };
+    });
+
     res.status(200).json({
       success: true,
-      data: contests,
+      data: contestsWithPayment,
       pagination: {
         total,
         page,
@@ -521,3 +558,4 @@ module.exports = {
 };
 
 
+ 

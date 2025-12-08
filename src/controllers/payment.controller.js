@@ -232,7 +232,10 @@ const getAllPayments = async (req, res) => {
 
     const payments = await Payment.find()
       .populate('userId', 'name email')
-      .populate('contestId', 'name')
+      .populate({
+        path: 'contestId',
+        select: 'name creatorId'
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -259,12 +262,52 @@ const getAllPayments = async (req, res) => {
   }
 };
 
+/**
+ * GET /payments/creator-users
+ * Get payments made by users for contests created by current creator
+ */
+const getCreatorUserPayments = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // First find all contests created by this user
+    const contests = await Contest.find({ creatorId: userId }).select('_id');
+    const contestIds = contests.map(c => c._id);
+
+    // Find payments for these contests, excluding the creator's own payments (if they paid for their own contest)
+    // Actually, usually creators pay for their own contest to publish it.
+    // The user wants "User's payment history" to go to Creator.
+    // So we want payments where contestId IN [my_contests] AND userId != me
+    
+    const payments = await Payment.find({
+      contestId: { $in: contestIds },
+      userId: { $ne: userId }
+    })
+      .populate('userId', 'name email photoURL')
+      .populate('contestId', 'name')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: payments,
+    });
+  } catch (error) {
+    console.error('Error in getCreatorUserPayments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user payments',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createPaymentIntent,
   confirmPayment,
   handleWebhook,
   getMyPayments,
   getAllPayments,
+  getCreatorUserPayments,
 };
 
 

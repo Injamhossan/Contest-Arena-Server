@@ -8,7 +8,7 @@ const generateJWT = require('../utils/generateJWT');
 const createJWT = async (req, res) => {
   try {
     console.log('Received JWT request:', { body: req.body, headers: req.headers });
-    const { email, name, photoURL } = req.body;
+    const { email, name, photoURL, role } = req.body;
 
     if (!email) {
       console.error('Email is missing in request');
@@ -23,13 +23,18 @@ const createJWT = async (req, res) => {
     console.log('User lookup result:', user ? 'Found' : 'Not found');
 
     if (!user) {
-      // Create new user with default role 'user'
-      console.log('Creating new user:', { email: email.toLowerCase(), name: name || 'User' });
+      // Validate role - Allow 'user' or 'creator', default to 'user'
+      // Prevent 'admin' creation via public API for security
+      const validRoles = ['user', 'creator'];
+      const userRole = (role && validRoles.includes(role)) ? role : 'user';
+
+      // Create new user
+      console.log('Creating new user:', { email: email.toLowerCase(), name: name || 'User', role: userRole });
       user = await User.create({
         email: email.toLowerCase(),
         name: name || 'User',
         photoURL: photoURL || '',
-        role: 'user',
+        role: userRole,
       });
       console.log('User created successfully:', user._id);
     } else {

@@ -6,6 +6,7 @@ const {
   handleWebhook,
   getMyPayments,
   getAllPayments,
+  getCreatorUserPayments,
 } = require('../controllers/payment.controller');
 const roleChecker = require('../middleware/roleChecker');
 const verifyJWT = require('../middleware/verifyJWT');
@@ -21,6 +22,9 @@ router.post('/webhook', handleWebhook);
 
 // GET /payments/me - Get my payments
 router.get('/me', verifyJWT, getMyPayments);
+
+// GET /payments/creator-users - Get payments from users for my contests
+router.get('/creator-users', verifyJWT, roleChecker('creator'), getCreatorUserPayments);
 
 // GET /payments - Get all payments (Admin only)
 router.get('/', verifyJWT, roleChecker('admin'), getAllPayments);
