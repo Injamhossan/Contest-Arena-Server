@@ -179,11 +179,50 @@ const updateUserProfile = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /users/:id
+ * Delete user (Admin only)
+ */
+const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if user exists
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Prevent deleting self (optional but good practice)
+    // if (user._id.toString() === req.user.userId) {
+    //   return res.status(400).json({ success: false, message: 'Cannot delete yourself' });
+    // }
+
+    await User.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: 'User deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error in deleteUser:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete user',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUserRole,
   updateUserProfile,
+  deleteUser,
 };
 
 

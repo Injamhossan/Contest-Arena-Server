@@ -145,7 +145,7 @@ const createContest = async (req, res) => {
     console.log('User from token:', req.user);
 
     // Validation
-    if (!name || !description || !price || !prizeMoney || !taskInstructions || !contestType || !deadline) {
+    if (!name || !description || !price || !prizeMoney || !taskInstructions || !contestType || !deadline || participationLimit === undefined) {
       console.error('Missing required fields');
       return res.status(400).json({
         success: false,
@@ -170,6 +170,8 @@ const createContest = async (req, res) => {
       creatorId: userId,
       creatorName: userName,
       deadline: new Date(deadline),
+      deadline: new Date(deadline),
+      participationLimit: parseInt(participationLimit),
       status: 'pending',
     });
     
@@ -216,13 +218,9 @@ const updateContest = async (req, res) => {
       });
     }
 
-    // Check if contest is still pending
-    if (contest.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot edit contest. Contest is already confirmed.',
-      });
-    }
+    // Check if contest is still pending OR confirmed (if confirmed, we will reset to pending)
+    // Removed the block that prevents editing confirmed contests.
+    // if (contest.status !== 'pending') { ... }
 
     // Update allowed fields
     const {
@@ -235,6 +233,7 @@ const updateContest = async (req, res) => {
       taskInstructions,
       contestType,
       deadline,
+      participationLimit,
     } = req.body;
 
     if (name) contest.name = name;
@@ -246,6 +245,14 @@ const updateContest = async (req, res) => {
     if (taskInstructions) contest.taskInstructions = taskInstructions;
     if (contestType) contest.contestType = contestType;
     if (deadline) contest.deadline = new Date(deadline);
+
+
+    if (participationLimit !== undefined) contest.participationLimit = parseInt(participationLimit);
+
+    // If contest was confirmed, reset to pending
+    if (contest.status === 'confirmed') {
+        contest.status = 'pending';
+    }
 
     await contest.save();
 

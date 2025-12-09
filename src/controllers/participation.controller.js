@@ -51,6 +51,19 @@ const createParticipation = async (req, res) => {
       });
     }
 
+    // Check participation limit
+    // Assuming 0 or null means no limit, but user asked for setting a limit.
+    // If we treat 0 as "no limit", we should clarify. But "limit" usually implies a max.
+    // If allow unlimited, we'd need a flag or specific value.
+    // Given the prompt "koto jon participate join korte parbe... jate ar theke beshi join korte na pare",
+    // it implies a strict limit.
+    if (contest.participationLimit > 0 && contest.participantsCount >= contest.participationLimit) {
+        return res.status(400).json({
+            success: false,
+            message: 'Contest participation limit reached',
+        });
+    }
+
     // Check if deadline has passed
     if (new Date() > new Date(contest.deadline)) {
       return res.status(400).json({

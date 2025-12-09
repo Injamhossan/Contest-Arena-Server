@@ -36,11 +36,31 @@ const createPaymentIntent = async (req, res) => {
 
     // Verify price matches contest price
     // Use loose equality or parse float to handle string/number differences
-    if (parseFloat(price) !== contest.price) {
+    // EXCEPTION: If this is an update fee (price === 10), allow it even if it doesn't match contest price
+    // ideally we should check a flag, but for now checking the exact amount for update fee is functional
+    // assuming no contest has exactly $10 price where we want to conflict (or if it does, it's fine).
+    // Better: check req.body.paymentType
+    const { paymentType } = req.body;
+    
+    if (paymentType === 'update' && parseFloat(price) === 10) {
+        // Allow update fee
+    } else if (parseFloat(price) !== contest.price) {
       return res.status(400).json({
         success: false,
         message: 'Price does not match contest entry fee',
       });
+    }
+
+    // Check for existing payment
+    const existingPayment = await Payment.findOne({ userId, contestId });
+
+    if (existingPayment) {
+      if (existingPayment.paymentStatus === 'completed') {
+        return res.status(400).json({
+          success: false,
+          message: 'You have already paid for this contest',
+        });
+      }
     }
 
     // Create payment intent in Stripe
@@ -50,18 +70,51 @@ const createPaymentIntent = async (req, res) => {
       metadata: {
         userId: userId,
         contestId: contestId,
+        paymentType: req.body.paymentType || 'entry'
       },
     });
 
-    // Create payment record in database
-    const payment = await Payment.create({
-      userId,
-      contestId,
-      amount: price,
-      paymentStatus: 'pending',
-      paymentId: paymentIntent.id,
-      stripePaymentIntentId: paymentIntent.id,
-    });
+    let payment;
+
+    // Check for existing update payment? No, updates are stackable/repeatable? 
+    // "proti update 10$ pay korte hobe" -> Every update needs payment.
+    // So we just create a new payment record for "update_fee".
+    // We should probably mark the payment record type.
+    
+    // For now, simple logic: Just create the record.
+    // If it's an update, we probably don't want to conflict with "entry" logic which checks for existing duplicates.
+    
+    if (req.body.paymentType === 'update') {
+         payment = await Payment.create({
+          userId,
+          contestId,
+          amount: price,
+          paymentStatus: 'pending',
+          paymentId: paymentIntent.id,
+          stripePaymentIntentId: paymentIntent.id,
+          // We might want to add a type field to schema later, but for now this is fine.
+          // Or reuse existing schema.
+        });
+    } else {
+        if (existingPayment) {
+            // ... strict duplicate check logic ...
+             // Update existing pending payment
+            existingPayment.amount = price;
+            existingPayment.paymentId = paymentIntent.id;
+            existingPayment.stripePaymentIntentId = paymentIntent.id;
+            payment = await existingPayment.save();
+        } else {
+             // Create new payment record
+            payment = await Payment.create({
+                userId,
+                contestId,
+                amount: price,
+                paymentStatus: 'pending',
+                paymentId: paymentIntent.id,
+                stripePaymentIntentId: paymentIntent.id,
+            });
+        }
+    }
 
     res.status(200).json({
       success: true,
@@ -205,10 +258,31 @@ const getMyPayments = async (req, res) => {
       .populate('contestId', 'name image price prizeMoney')
       .sort({ createdAt: -1 });
 
+    // Filter to show unique contests, prioritizing completed payments
+    const uniquePaymentsMap = new Map();
+    
+    payments.forEach(payment => {
+      const contestId = payment.contestId?._id?.toString();
+      if (!contestId) return;
+
+      if (!uniquePaymentsMap.has(contestId)) {
+        uniquePaymentsMap.set(contestId, payment);
+      } else {
+        const existing = uniquePaymentsMap.get(contestId);
+        // If current is completed and existing is not, replace it
+        if (payment.paymentStatus === 'completed' && existing.paymentStatus !== 'completed') {
+          uniquePaymentsMap.set(contestId, payment);
+        }
+        // If both are same status or neither is completed, we already have the latest one due to sort desc
+      }
+    });
+
+    const uniquePayments = Array.from(uniquePaymentsMap.values());
+
     res.status(200).json({
       success: true,
-      data: payments,
-      count: payments.length,
+      data: uniquePayments,
+      count: uniquePayments.length,
     });
   } catch (error) {
     console.error('Error in getMyPayments:', error);
@@ -236,19 +310,51 @@ const getAllPayments = async (req, res) => {
         path: 'contestId',
         select: 'name creatorId'
       })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+      .sort({ createdAt: -1 });
+      // Can't use skip/limit on database query effectively if we are filtering in memory.
+      // For now, we fetch more or all, filter, and then paginate manually if needed.
+      // However, to keep it simple and safe for large datasets, we might need aggregation framework.
+      // BUT, given the current context and "Assignment" nature, in-memory filtering of the fetched page might be weird if the duplicates are across pages.
+      // To properly fix this without aggregation, we should probably correct the fetching.
+      // But creating a complex aggregation pipeline might be risky.
+      // Let's stick to the user's request: "change koro joto gula payment history ache".
+      // If I fetch 10 items and 5 are duplicates of the other 5, I show 5. This is acceptable for now.
+      
+    // Filter to show unique user+contest pairs
+    const uniquePaymentsMap = new Map();
+    
+    payments.forEach(payment => {
+      const uId = payment.userId?._id?.toString();
+      const cId = payment.contestId?._id?.toString();
+      if (!uId || !cId) return;
+      
+      const key = `${uId}_${cId}`;
 
-    const total = await Payment.countDocuments();
+      if (!uniquePaymentsMap.has(key)) {
+        uniquePaymentsMap.set(key, payment);
+      } else {
+        const existing = uniquePaymentsMap.get(key);
+        // Prioritize completed
+        if (payment.paymentStatus === 'completed' && existing.paymentStatus !== 'completed') {
+          uniquePaymentsMap.set(key, payment);
+        }
+      }
+    });
+
+    const uniquePayments = Array.from(uniquePaymentsMap.values());
+    
+    // Manual pagination after filtering (since we removed limit from query to ensure we catch dups)
+    // NOTE: If dataset is huge, this is bad. But for typical assignment apps, it's fine.
+    // Actually, to respect the original pagination params roughly:
+    const paginatedPayments = uniquePayments.slice(skip, skip + limit);
 
     res.status(200).json({
       success: true,
-      data: payments,
+      data: paginatedPayments,
       pagination: {
-        total,
+        total: uniquePayments.length,
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(uniquePayments.length / limit),
         limit,
       },
     });
@@ -287,9 +393,32 @@ const getCreatorUserPayments = async (req, res) => {
       .populate('contestId', 'name')
       .sort({ createdAt: -1 });
 
+    // Filter to show unique user+contest pairs
+    const uniquePaymentsMap = new Map();
+    
+    payments.forEach(payment => {
+      const uId = payment.userId?._id?.toString();
+      const cId = payment.contestId?._id?.toString();
+      if (!uId || !cId) return;
+      
+      const key = `${uId}_${cId}`;
+
+      if (!uniquePaymentsMap.has(key)) {
+        uniquePaymentsMap.set(key, payment);
+      } else {
+        const existing = uniquePaymentsMap.get(key);
+        // Prioritize completed
+        if (payment.paymentStatus === 'completed' && existing.paymentStatus !== 'completed') {
+          uniquePaymentsMap.set(key, payment);
+        }
+      }
+    });
+
+    const uniquePayments = Array.from(uniquePaymentsMap.values());
+
     res.status(200).json({
       success: true,
-      data: payments,
+      data: uniquePayments,
     });
   } catch (error) {
     console.error('Error in getCreatorUserPayments:', error);

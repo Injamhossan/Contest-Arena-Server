@@ -5,6 +5,7 @@ const {
   getUserById,
   updateUserRole,
   updateUserProfile,
+  deleteUser,
 } = require('../controllers/user.controller');
 const verifyJWT = require('../middleware/verifyJWT');
 const verifyRole = require('../middleware/roleChecker');
@@ -20,6 +21,9 @@ router.patch('/:id/role', verifyJWT, updateUserRole);
 
 // PATCH /users/:id - Update user profile
 router.patch('/:id', verifyJWT, updateUserProfile);
+
+// DELETE /users/:id - Delete user (Admin only)
+router.delete('/:id', verifyJWT, verifyRole('admin'), deleteUser);
 
 module.exports = router;
 
