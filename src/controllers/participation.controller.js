@@ -107,8 +107,12 @@ const createParticipation = async (req, res) => {
     });
 
     // Increment participantsCount in contest
-    contest.participantsCount = (contest.participantsCount || 0) + 1;
+    // Increment contest participants count
+    contest.participantsCount += 1;
     await contest.save();
+
+    // Increment user's participations count
+    await User.findByIdAndUpdate(userId, { $inc: { participationsCount: 1 } });
 
     res.status(201).json({
       success: true,
@@ -284,7 +288,7 @@ const getMyContestSubmissions = async (req, res) => {
     // Find submissions for these contests
     const submissions = await Submission.find({ contestId: { $in: contestIds } })
       .populate('userId', 'name email photoURL')
-      .populate('contestId', 'name')
+      .populate('contestId', 'name deadline winnerUserId image')
       .sort({ createdAt: -1 });
 
     res.status(200).json({

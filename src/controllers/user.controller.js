@@ -217,12 +217,39 @@ const deleteUser = async (req, res) => {
   }
 };
 
+/**
+ * GET /users/leaderboard
+ * Get top users for leaderboard
+ * Public route
+ */
+const getLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({ role: 'user' }) // Only show regular users
+      .select('name photoURL winsCount participationsCount')
+      .sort({ winsCount: -1 })
+      .limit(50); // Get top 50
+
+    res.status(200).json({
+      success: true,
+      data: users,
+    });
+  } catch (error) {
+    console.error('Error in getLeaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch leaderboard',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUserRole,
   updateUserProfile,
   deleteUser,
+  getLeaderboard,
 };
 
 
