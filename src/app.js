@@ -74,6 +74,7 @@ app.use('/api/contests', contestRoutes);
 app.use('/api/participations', participationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/admin', require('./routes/admin.routes'));
 
 // 404 handler for unknown API routes
 app.use('*', (req, res) => {
