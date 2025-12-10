@@ -139,6 +139,7 @@ const createContest = async (req, res) => {
       taskInstructions,
       contestType,
       deadline,
+      participationLimit,
     } = req.body;
     
     console.log('Creating contest with body:', req.body);

@@ -108,7 +108,7 @@ const createParticipation = async (req, res) => {
 
     // Increment participantsCount in contest
     // Increment contest participants count
-    contest.participantsCount += 1;
+    contest.participantsCount = (contest.participantsCount || 0) + 1;
     await contest.save();
 
     // Increment user's participations count
