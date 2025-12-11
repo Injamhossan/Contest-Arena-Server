@@ -3,8 +3,6 @@ const Contest = require('../models/Contest.model');
 
 /**
  * GET /admin/stats
- * Get admin dashboard statistics
- * Returns counts for users, contests (total, pending, confirmed)
  */
 const getAdminStats = async (req, res) => {
   try {

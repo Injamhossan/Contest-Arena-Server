@@ -3,3 +3,5 @@ node_modules
 .env
 
 contest-arena-SDK.json
+.vercel
+.env*.local

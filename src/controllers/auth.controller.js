@@ -23,8 +23,6 @@ const createJWT = async (req, res) => {
     console.log('User lookup result:', user ? 'Found' : 'Not found');
 
     if (!user) {
-      // Validate role - Allow 'user' or 'creator', default to 'user'
-      // Prevent 'admin' creation via public API for security
       const validRoles = ['user', 'creator'];
       const userRole = (role && validRoles.includes(role)) ? role : 'user';
 

@@ -24,10 +24,7 @@ console.log('✅ Environment variables validated');
 // Connect to MongoDB
 connectDB()
   .then(async () => {
-    // Initialize default admin account
     await initializeAdmin();
-
-    // Start server
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -38,14 +35,11 @@ connectDB()
     process.exit(1);
   });
 
-// Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Promise Rejection:', err);
-  // Close server & exit process
   process.exit(1);
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
   process.exit(1);

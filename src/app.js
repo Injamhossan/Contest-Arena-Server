@@ -14,7 +14,14 @@ const leaderboardRoutes = require('./routes/leaderboard.routes');
 const app = express();
 
 // Security middleware
+// Security middleware
 app.use(helmet());
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 // CORS configuration for React frontend
 const allowedOrigins = process.env.FRONTEND_URL 
