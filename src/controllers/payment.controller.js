@@ -1,6 +1,12 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const Payment = require('../models/Payment.model');
-const Contest = require('../models/Contest.model');
+const { client } = require('../config/db');
+const { ObjectId } = require('mongodb');
+
+// Helper to get collection
+const getCol = (name) => {
+  const db = client.db(process.env.DB_NAME || 'contest_arena');
+  return db.collection(name);
+};
 
 /**
  * POST /payments/create-intent
@@ -10,6 +16,8 @@ const createPaymentIntent = async (req, res) => {
   try {
     const { price, contestId } = req.body;
     const userId = req.user.userId;
+    const contestsCol = getCol('contests');
+    const paymentsCol = getCol('payments');
 
     if (!price || price <= 0) {
       return res.status(400).json({
@@ -26,7 +34,7 @@ const createPaymentIntent = async (req, res) => {
     }
 
     // Verify contest exists
-    const contest = await Contest.findById(contestId);
+    const contest = await contestsCol.findOne({ _id: new ObjectId(contestId) });
     if (!contest) {
       return res.status(404).json({
         success: false,
@@ -35,11 +43,6 @@ const createPaymentIntent = async (req, res) => {
     }
 
     // Verify price matches contest price
-    // Use loose equality or parse float to handle string/number differences
-    // EXCEPTION: If this is an update fee (price === 10), allow it even if it doesn't match contest price
-    // ideally we should check a flag, but for now checking the exact amount for update fee is functional
-    // assuming no contest has exactly $10 price where we want to conflict (or if it does, it's fine).
-    // Better: check req.body.paymentType
     const { paymentType } = req.body;
     
     if (paymentType === 'update' && parseFloat(price) === 10) {
@@ -52,7 +55,10 @@ const createPaymentIntent = async (req, res) => {
     }
 
     // Check for existing payment
-    const existingPayment = await Payment.findOne({ userId, contestId });
+    const existingPayment = await paymentsCol.findOne({
+        userId: new ObjectId(userId),
+        contestId: new ObjectId(contestId)
+    });
 
     if (existingPayment) {
       if (existingPayment.paymentStatus === 'completed') {
@@ -75,44 +81,51 @@ const createPaymentIntent = async (req, res) => {
     });
 
     let payment;
+    const today = new Date();
 
-    // Check for existing update payment? No, updates are stackable/repeatable? 
-    // "proti update 10$ pay korte hobe" -> Every update needs payment.
-    // So we just create a new payment record for "update_fee".
-    // We should probably mark the payment record type.
-    
-    // For now, simple logic: Just create the record.
-    // If it's an update, we probably don't want to conflict with "entry" logic which checks for existing duplicates.
-    
     if (req.body.paymentType === 'update') {
-         payment = await Payment.create({
-          userId,
-          contestId,
+         const newPayment = {
+          userId: new ObjectId(userId),
+          contestId: new ObjectId(contestId),
           amount: price,
           paymentStatus: 'pending',
           paymentId: paymentIntent.id,
           stripePaymentIntentId: paymentIntent.id,
-          // We might want to add a type field to schema later, but for now this is fine.
-          // Or reuse existing schema.
-        });
+          createdAt: today,
+          updatedAt: today
+        };
+        const result = await paymentsCol.insertOne(newPayment);
+        payment = { _id: result.insertedId, ...newPayment };
     } else {
         if (existingPayment) {
-            // ... strict duplicate check logic ...
              // Update existing pending payment
-            existingPayment.amount = price;
-            existingPayment.paymentId = paymentIntent.id;
-            existingPayment.stripePaymentIntentId = paymentIntent.id;
-            payment = await existingPayment.save();
+            await paymentsCol.updateOne(
+                { _id: existingPayment._id },
+                { 
+                    $set: {
+                        amount: price,
+                        paymentId: paymentIntent.id,
+                        stripePaymentIntentId: paymentIntent.id,
+                        updatedAt: today
+                    }
+                }
+            );
+            // Re-fetch or merge
+            payment = { ...existingPayment, amount: price, paymentId: paymentIntent.id, stripePaymentIntentId: paymentIntent.id };
         } else {
              // Create new payment record
-            payment = await Payment.create({
-                userId,
-                contestId,
+            const newPayment = {
+                userId: new ObjectId(userId),
+                contestId: new ObjectId(contestId),
                 amount: price,
                 paymentStatus: 'pending',
                 paymentId: paymentIntent.id,
                 stripePaymentIntentId: paymentIntent.id,
-            });
+                createdAt: today,
+                updatedAt: today
+            };
+            const result = await paymentsCol.insertOne(newPayment);
+            payment = { _id: result.insertedId, ...newPayment };
         }
     }
 
@@ -139,6 +152,7 @@ const confirmPayment = async (req, res) => {
   try {
     const { paymentId, transactionId } = req.body;
     const userId = req.user.userId;
+    const paymentsCol = getCol('payments');
 
     if (!paymentId) {
       return res.status(400).json({
@@ -147,7 +161,7 @@ const confirmPayment = async (req, res) => {
       });
     }
 
-    const payment = await Payment.findById(paymentId);
+    const payment = await paymentsCol.findOne({ _id: new ObjectId(paymentId) });
 
     if (!payment) {
       return res.status(404).json({
@@ -171,24 +185,33 @@ const confirmPayment = async (req, res) => {
       );
 
       if (paymentIntent.status === 'succeeded') {
-        payment.paymentStatus = 'completed';
-        payment.transactionId = transactionId || paymentIntent.id;
-        payment.paidAt = new Date();
-        await payment.save();
+        const updateDoc = {
+            paymentStatus: 'completed',
+            transactionId: transactionId || paymentIntent.id,
+            paidAt: new Date(),
+            updatedAt: new Date()
+        };
+        
+        await paymentsCol.updateOne(
+            { _id: new ObjectId(paymentId) },
+            { $set: updateDoc }
+        );
 
         res.status(200).json({
           success: true,
           message: 'Payment confirmed successfully',
-          payment,
+          payment: { ...payment, ...updateDoc },
         });
       } else {
-        payment.paymentStatus = 'failed';
-        await payment.save();
+        await paymentsCol.updateOne(
+            { _id: new ObjectId(paymentId) },
+            { $set: { paymentStatus: 'failed', updatedAt: new Date() } }
+        );
 
         res.status(400).json({
           success: false,
           message: 'Payment not completed',
-          payment,
+          payment: { ...payment, paymentStatus: 'failed' },
         });
       }
     } catch (stripeError) {
@@ -216,6 +239,7 @@ const confirmPayment = async (req, res) => {
 const handleWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const paymentsCol = getCol('payments');
 
   let event;
 
@@ -231,16 +255,17 @@ const handleWebhook = async (req, res) => {
     const paymentIntent = event.data.object;
 
     // Update payment status in database
-    const payment = await Payment.findOne({
-      stripePaymentIntentId: paymentIntent.id,
-    });
-
-    if (payment) {
-      payment.paymentStatus = 'completed';
-      payment.transactionId = paymentIntent.id;
-      payment.paidAt = new Date();
-      await payment.save();
-    }
+    await paymentsCol.updateOne(
+        { stripePaymentIntentId: paymentIntent.id },
+        { 
+            $set: {
+                paymentStatus: 'completed',
+                transactionId: paymentIntent.id,
+                paidAt: new Date(),
+                updatedAt: new Date()
+            }
+        }
+    );
   }
 
   res.json({ received: true });
@@ -253,10 +278,37 @@ const handleWebhook = async (req, res) => {
 const getMyPayments = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const paymentsCol = getCol('payments');
 
-    const payments = await Payment.find({ userId })
-      .populate('contestId', 'name image price prizeMoney')
-      .sort({ createdAt: -1 });
+    const pipeline = [
+      { $match: { userId: new ObjectId(userId) } },
+      { $sort: { createdAt: -1 } },
+      // Populate contestId
+      {
+        $lookup: {
+          from: 'contests',
+          localField: 'contestId',
+          foreignField: '_id',
+          as: 'contest'
+        }
+      },
+      { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          'contest.description': 0, 'contest.taskInstructions': 0, // Exclude heavy fields usually not needed for lists
+        }
+      },
+      {
+        $addFields: {
+          contestId: '$contest'
+        }
+      },
+      {
+        $project: { contest: 0 }
+      }
+    ];
+
+    const payments = await paymentsCol.aggregate(pipeline).toArray();
 
     // Filter to show unique contests, prioritizing completed payments
     const uniquePaymentsMap = new Map();
@@ -303,23 +355,50 @@ const getAllPayments = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const paymentsCol = getCol('payments');
 
-    const payments = await Payment.find()
-      .populate('userId', 'name email')
-      .populate({
-        path: 'contestId',
-        select: 'name creatorId'
-      })
-      .sort({ createdAt: -1 });
-      // Can't use skip/limit on database query effectively if we are filtering in memory.
-      // For now, we fetch more or all, filter, and then paginate manually if needed.
-      // However, to keep it simple and safe for large datasets, we might need aggregation framework.
-      // BUT, given the current context and "Assignment" nature, in-memory filtering of the fetched page might be weird if the duplicates are across pages.
-      // To properly fix this without aggregation, we should probably correct the fetching.
-      // But creating a complex aggregation pipeline might be risky.
-      // Let's stick to the user's request: "change koro joto gula payment history ache".
-      // If I fetch 10 items and 5 are duplicates of the other 5, I show 5. This is acceptable for now.
+    // Similar logic as previous implementation: fetch all (or large set), populate, unique filter
+    
+    const pipeline = [
+      { $sort: { createdAt: -1 } },
+      // Populate userId
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      // Populate contestId
+      {
+        $lookup: {
+          from: 'contests',
+          localField: 'contestId',
+          foreignField: '_id',
+          as: 'contest'
+        }
+      },
+      { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
       
+      {
+        $project: {
+             'user.password': 0, 'user.__v': 0,
+             'contest.description': 0, 'contest.taskInstructions': 0
+        }
+      },
+      {
+        $addFields: {
+          userId: '$user',
+          contestId: '$contest'
+        }
+      },
+      { $project: { user: 0, contest: 0 } }
+    ];
+
+    const payments = await paymentsCol.aggregate(pipeline).toArray();
+
     // Filter to show unique user+contest pairs
     const uniquePaymentsMap = new Map();
     
@@ -343,9 +422,7 @@ const getAllPayments = async (req, res) => {
 
     const uniquePayments = Array.from(uniquePaymentsMap.values());
     
-    // Manual pagination after filtering (since we removed limit from query to ensure we catch dups)
-    // NOTE: If dataset is huge, this is bad. But for typical assignment apps, it's fine.
-    // Actually, to respect the original pagination params roughly:
+    // Manual pagination corresponding to original logic
     const paginatedPayments = uniquePayments.slice(skip, skip + limit);
 
     res.status(200).json({
@@ -375,23 +452,61 @@ const getAllPayments = async (req, res) => {
 const getCreatorUserPayments = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const contestsCol = getCol('contests');
+    const paymentsCol = getCol('payments');
 
     // First find all contests created by this user
-    const contests = await Contest.find({ creatorId: userId }).select('_id');
-    const contestIds = contests.map(c => c._id);
-
-    // Find payments for these contests, excluding the creator's own payments (if they paid for their own contest)
-    // Actually, usually creators pay for their own contest to publish it.
-    // The user wants "User's payment history" to go to Creator.
-    // So we want payments where contestId IN [my_contests] AND userId != me
+    const contests = await contestsCol.find(
+        { creatorId: new ObjectId(userId) },
+        { projection: { _id: 1 } }
+    ).toArray();
     
-    const payments = await Payment.find({
-      contestId: { $in: contestIds },
-      userId: { $ne: userId }
-    })
-      .populate('userId', 'name email photoURL')
-      .populate('contestId', 'name')
-      .sort({ createdAt: -1 });
+    const contestIds = contests.map(c => c._id);
+    
+    const pipeline = [
+      { 
+          $match: {
+            contestId: { $in: contestIds },
+            userId: { $ne: new ObjectId(userId) }
+          }
+      },
+      { $sort: { createdAt: -1 } },
+      // Populate userId
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      // Populate contestId
+      {
+        $lookup: {
+          from: 'contests',
+          localField: 'contestId',
+          foreignField: '_id',
+          as: 'contest'
+        }
+      },
+      { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+            'user.password': 0, 'user.__v': 0,
+            'contest.description': 0, 'contest.taskInstructions': 0
+        }
+      },
+      {
+        $addFields: {
+          userId: '$user',
+          contestId: '$contest'
+        }
+      },
+      { $project: { user: 0, contest: 0 } }
+    ];
+
+    const payments = await paymentsCol.aggregate(pipeline).toArray();
 
     // Filter to show unique user+contest pairs
     const uniquePaymentsMap = new Map();

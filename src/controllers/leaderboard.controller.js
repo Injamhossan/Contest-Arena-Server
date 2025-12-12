@@ -1,4 +1,11 @@
-const User = require('../models/User.model');
+const { client } = require('../config/db');
+const { ObjectId } = require('mongodb');
+
+// Helper to get collection
+const getCol = (name) => {
+  const db = client.db(process.env.DB_NAME || 'contest_arena');
+  return db.collection(name);
+};
 
 /**
  * GET /leaderboard
@@ -7,11 +14,15 @@ const User = require('../models/User.model');
 const getLeaderboard = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
+    const usersCol = getCol('users');
 
-    const users = await User.find({ winsCount: { $gt: 0 } })
-      .select('name photoURL winsCount email')
-      .sort({ winsCount: -1 })
-      .limit(limit);
+    const users = await usersCol.find(
+      { winsCount: { $gt: 0 } },
+      { projection: { name: 1, photoURL: 1, winsCount: 1, email: 1 } }
+    )
+    .sort({ winsCount: -1 })
+    .limit(limit)
+    .toArray();
 
     // Add rank to each user
     const leaderboard = users.map((user, index) => ({

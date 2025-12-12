@@ -1,4 +1,5 @@
-const User = require('../models/User.model');
+const { client } = require('../config/db');
+const { ObjectId } = require('mongodb');
 
 /**
  * GET /users
@@ -7,17 +8,21 @@ const User = require('../models/User.model');
  */
 const getAllUsers = async (req, res) => {
   try {
+    const db = client.db(process.env.DB_NAME || 'contest_arena');
+    const usersCollection = db.collection('users');
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const users = await User.find()
-      .select('-__v')
+    const users = await usersCollection.find({})
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .project({ password: 0, __v: 0 })
+      .toArray();
 
-    const total = await User.countDocuments();
+    const total = await usersCollection.countDocuments();
 
     res.status(200).json({
       success: true,
@@ -57,7 +62,13 @@ const getUserById = async (req, res) => {
       });
     }
 
-    const user = await User.findById(id).select('-__v');
+    const db = client.db(process.env.DB_NAME || 'contest_arena');
+    const usersCollection = db.collection('users');
+
+    const user = await usersCollection.findOne(
+      { _id: new ObjectId(id) },
+      { projection: { password: 0, __v: 0 } }
+    );
 
     if (!user) {
       return res.status(404).json({
@@ -96,27 +107,28 @@ const updateUserRole = async (req, res) => {
       });
     }
 
-    const user = await User.findById(id);
+    const db = client.db(process.env.DB_NAME || 'contest_arena');
+    const usersCollection = db.collection('users');
 
-    if (!user) {
+    const result = await usersCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: { role: role, updatedAt: new Date() } },
+      { returnDocument: 'after', projection: { password: 0, __v: 0 } }
+    );
+
+    const updatedUser = result || await usersCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!updatedUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found',
       });
     }
 
-    user.role = role;
-    await user.save();
-
     res.status(200).json({
       success: true,
       message: 'User role updated successfully',
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
+      user: updatedUser,
     });
   } catch (error) {
     console.error('Error in updateUserRole:', error);
@@ -147,7 +159,10 @@ const updateUserProfile = async (req, res) => {
       });
     }
 
-    const user = await User.findById(id);
+    const db = client.db(process.env.DB_NAME || 'contest_arena');
+    const usersCollection = db.collection('users');
+
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
 
     if (!user) {
       return res.status(404).json({
@@ -156,18 +171,24 @@ const updateUserProfile = async (req, res) => {
       });
     }
 
-    // Update allowed fields
-    if (name !== undefined) user.name = name;
-    if (photoURL !== undefined) user.photoURL = photoURL;
-    if (bio !== undefined) user.bio = bio;
-    if (address !== undefined) user.address = address;
+    // Prepare update object
+    const updateFields = { updatedAt: new Date() };
+    if (name !== undefined) updateFields.name = name;
+    if (photoURL !== undefined) updateFields.photoURL = photoURL;
+    if (bio !== undefined) updateFields.bio = bio;
+    if (address !== undefined) updateFields.address = address;
 
-    await user.save();
+    await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    const updatedUser = await usersCollection.findOne({ _id: new ObjectId(id) });
 
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      user,
+      user: updatedUser,
     });
   } catch (error) {
     console.error('Error in updateUserProfile:', error);
@@ -187,21 +208,17 @@ const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if user exists
-    const user = await User.findById(id);
-    if (!user) {
+    const db = client.db(process.env.DB_NAME || 'contest_arena');
+    const usersCollection = db.collection('users');
+
+    const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'User not found',
       });
     }
-
-    // Prevent deleting self (optional but good practice)
-    // if (user._id.toString() === req.user.userId) {
-    //   return res.status(400).json({ success: false, message: 'Cannot delete yourself' });
-    // }
-
-    await User.findByIdAndDelete(id);
 
     res.status(200).json({
       success: true,
@@ -224,10 +241,14 @@ const deleteUser = async (req, res) => {
  */
 const getLeaderboard = async (req, res) => {
   try {
-    const users = await User.find({ role: 'user' }) // Only show regular users
-      .select('name photoURL winsCount participationsCount')
+    const db = client.db(process.env.DB_NAME || 'contest_arena');
+    const usersCollection = db.collection('users');
+
+    const users = await usersCollection.find({ role: 'user' })
+      .project({ name: 1, photoURL: 1, winsCount: 1, participationsCount: 1 })
       .sort({ winsCount: -1 })
-      .limit(50); // Get top 50
+      .limit(50)
+      .toArray();
 
     res.status(200).json({
       success: true,

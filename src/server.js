@@ -1,6 +1,6 @@
 require('dotenv').config();
 const app = require('./app');
-const connectDB = require('./config/db');
+const { connectDB } = require('./config/db');
 const initializeAdmin = require('./scripts/initializeAdmin');
 
 const PORT = process.env.PORT || 5000;

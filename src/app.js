@@ -13,8 +13,7 @@ const leaderboardRoutes = require('./routes/leaderboard.routes');
 
 const app = express();
 
-// Security middleware
-// Security middleware
+
 app.use(helmet());
 
 // Request logging middleware
@@ -31,19 +30,14 @@ const allowedOrigins = process.env.FRONTEND_URL
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) {
         return callback(null, true);
       }
-      
-      // In development, allow all localhost origins
       if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
         if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
           return callback(null, true);
         }
       }
-      
-      // Check if origin is in allowed list
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -57,8 +51,6 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
-
-// Stripe webhook needs raw body for signature verification (must be before JSON parser)
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
 // Body parser middleware
@@ -82,8 +74,6 @@ app.use('/api/participations', participationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/admin', require('./routes/admin.routes'));
-
-// 404 handler for unknown API routes
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -91,12 +81,8 @@ app.use('*', (req, res) => {
     path: req.originalUrl,
   });
 });
-
-// Centralized error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-
-  // Mongoose validation error
   if (err.name === 'ValidationError') {
     const errors = Object.values(err.errors).map((e) => e.message);
     return res.status(400).json({
@@ -105,8 +91,6 @@ app.use((err, req, res, next) => {
       errors,
     });
   }
-
-  // Mongoose duplicate key error
   if (err.code === 11000) {
     const field = Object.keys(err.keyPattern)[0];
     return res.status(400).json({
@@ -114,8 +98,6 @@ app.use((err, req, res, next) => {
       message: `${field} already exists`,
     });
   }
-
-  // JWT errors
   if (err.name === 'JsonWebTokenError') {
     return res.status(401).json({
       success: false,
@@ -129,8 +111,6 @@ app.use((err, req, res, next) => {
       message: 'Token expired',
     });
   }
-
-  // Default error
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal server error',

@@ -1,7 +1,11 @@
-const Submission = require('../models/Submission.model');
-const Contest = require('../models/Contest.model');
-const Payment = require('../models/Payment.model');
-const User = require('../models/User.model');
+const { client } = require('../config/db');
+const { ObjectId } = require('mongodb');
+
+// Helper to get collection
+const getCol = (name) => {
+  const db = client.db(process.env.DB_NAME || 'contest_arena');
+  return db.collection(name);
+};
 
 /**
  * POST /participations
@@ -19,11 +23,16 @@ const createParticipation = async (req, res) => {
       });
     }
 
+    const paymentsCol = getCol('payments');
+    const contestsCol = getCol('contests');
+    const submissionsCol = getCol('submissions');
+    const usersCol = getCol('users');
+
     // Verify payment exists and is completed
-    const payment = await Payment.findOne({
-      _id: paymentId,
-      userId,
-      contestId,
+    const payment = await paymentsCol.findOne({
+      _id: new ObjectId(paymentId),
+      userId: new ObjectId(userId),
+      contestId: new ObjectId(contestId),
       paymentStatus: 'completed',
     });
 
@@ -35,7 +44,7 @@ const createParticipation = async (req, res) => {
     }
 
     // Check if contest exists
-    const contest = await Contest.findById(contestId);
+    const contest = await contestsCol.findOne({ _id: new ObjectId(contestId) });
     if (!contest) {
       return res.status(404).json({
         success: false,
@@ -52,12 +61,7 @@ const createParticipation = async (req, res) => {
     }
 
     // Check participation limit
-    // Assuming 0 or null means no limit, but user asked for setting a limit.
-    // If we treat 0 as "no limit", we should clarify. But "limit" usually implies a max.
-    // If allow unlimited, we'd need a flag or specific value.
-    // Given the prompt "koto jon participate join korte parbe... jate ar theke beshi join korte na pare",
-    // it implies a strict limit.
-    if (contest.participationLimit > 0 && contest.participantsCount >= contest.participationLimit) {
+    if (contest.participationLimit > 0 && (contest.participantsCount || 0) >= contest.participationLimit) {
         return res.status(400).json({
             success: false,
             message: 'Contest participation limit reached',
@@ -73,9 +77,9 @@ const createParticipation = async (req, res) => {
     }
 
     // Check if user already participated
-    const existingSubmission = await Submission.findOne({
-      contestId,
-      userId,
+    const existingSubmission = await submissionsCol.findOne({
+      contestId: new ObjectId(contestId),
+      userId: new ObjectId(userId),
     });
 
     if (existingSubmission) {
@@ -86,7 +90,7 @@ const createParticipation = async (req, res) => {
     }
 
     // Get user info
-    const user = await User.findById(userId);
+    const user = await usersCol.findOne({ _id: new ObjectId(userId) });
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -95,24 +99,33 @@ const createParticipation = async (req, res) => {
     }
 
     // Create submission/participation
-    const submission = await Submission.create({
-      contestId,
-      userId,
+    const newSubmission = {
+      contestId: new ObjectId(contestId),
+      userId: new ObjectId(userId),
       userName: user.name,
       userEmail: user.email,
       submissionLink: submissionLink || '',
-      paymentId: paymentId,
+      paymentId: new ObjectId(paymentId),
       transactionId: payment.transactionId || '',
       paymentStatus: 'paid',
-    });
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await submissionsCol.insertOne(newSubmission);
+    const submission = { _id: result.insertedId, ...newSubmission };
 
     // Increment participantsCount in contest
-    // Increment contest participants count
-    contest.participantsCount = (contest.participantsCount || 0) + 1;
-    await contest.save();
+    await contestsCol.updateOne(
+        { _id: new ObjectId(contestId) },
+        { $inc: { participantsCount: 1 } }
+    );
 
     // Increment user's participations count
-    await User.findByIdAndUpdate(userId, { $inc: { participationsCount: 1 } });
+    await usersCol.updateOne(
+        { _id: new ObjectId(userId) },
+        { $inc: { participationsCount: 1 } }
+    );
 
     res.status(201).json({
       success: true,
@@ -143,18 +156,44 @@ const getMyParticipations = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { sort } = req.query;
+    const submissionsCol = getCol('submissions');
 
     let sortOption = { createdAt: -1 };
+    
+    // Note: sorting by populated field in simple find is not possible directly correctly without aggregation.
+    // If sort is 'deadline', we need to lookup contest first.
+    
+    const pipeline = [
+      { $match: { userId: new ObjectId(userId) } },
+      {
+        $lookup: {
+          from: 'contests',
+          localField: 'contestId',
+          foreignField: '_id',
+          as: 'contest'
+        }
+      },
+      { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
+      // Select specific fields for contest to match "select" in mongoose if needed, or keep all.
+      // We populate `contestId` with the contest object.
+      // AND we also add `contest` field because the frontend uses `item.contest` for display 
+      // but `item.contestId` for filtering (inconsistent frontend code).
+      {
+         $addFields: {
+             contestId: '$contest', // Mongoose populates into the field itself
+             contest: '$contest'    // Add alias for frontend display
+         }
+      },
+      // { $project: { contest: 0 } } // Removed to keep 'contest' field for frontend display
+    ];
+
     if (sort === 'deadline') {
-      sortOption = { 'contest.deadline': 1 };
+       pipeline.push({ $sort: { 'contestId.deadline': 1 } });
+    } else {
+       pipeline.push({ $sort: { createdAt: -1 } });
     }
 
-    const submissions = await Submission.find({ userId })
-      .populate({
-        path: 'contestId',
-        select: 'name image description shortDescription price prizeMoney contestType deadline status participantsCount winnerUserId',
-      })
-      .sort(sortOption);
+    const submissions = await submissionsCol.aggregate(pipeline).toArray();
 
     res.status(200).json({
       success: true,
@@ -179,9 +218,11 @@ const getContestSubmissions = async (req, res) => {
   try {
     const { contestId } = req.params;
     const userId = req.user.userId;
+    const contestsCol = getCol('contests');
+    const submissionsCol = getCol('submissions');
 
     // Verify contest exists and user is the creator
-    const contest = await Contest.findById(contestId);
+    const contest = await contestsCol.findOne({ _id: new ObjectId(contestId) });
 
     if (!contest) {
       return res.status(404).json({
@@ -197,9 +238,33 @@ const getContestSubmissions = async (req, res) => {
       });
     }
 
-    const submissions = await Submission.find({ contestId })
-      .populate('userId', 'name email photoURL')
-      .sort({ createdAt: -1 });
+    const pipeline = [
+        { $match: { contestId: new ObjectId(contestId) } },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'userId', // The field in submission
+                foreignField: '_id',
+                as: 'user'
+            }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        { 
+            $project: {
+                'user.password': 0, 
+                'user.__v': 0 
+            }
+        },
+        {
+            $addFields: {
+                userId: '$user' // Replace userId ID with User Object
+            }
+        },
+        { $project: { user: 0 } },
+        { $sort: { createdAt: -1 } }
+    ];
+
+    const submissions = await submissionsCol.aggregate(pipeline).toArray();
 
     res.status(200).json({
       success: true,
@@ -225,8 +290,10 @@ const updateSubmission = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
     const { submissionLink, submissionText } = req.body;
+    const submissionsCol = getCol('submissions');
+    const contestsCol = getCol('contests');
 
-    const submission = await Submission.findById(id);
+    const submission = await submissionsCol.findOne({ _id: new ObjectId(id) });
 
     if (!submission) {
       return res.status(404).json({
@@ -244,7 +311,7 @@ const updateSubmission = async (req, res) => {
     }
 
     // Check if deadline has passed
-    const contest = await Contest.findById(submission.contestId);
+    const contest = await contestsCol.findOne({ _id: new ObjectId(submission.contestId) });
     if (new Date() > new Date(contest.deadline)) {
       return res.status(400).json({
         success: false,
@@ -253,15 +320,21 @@ const updateSubmission = async (req, res) => {
     }
 
     // Update submission
-    if (submissionLink !== undefined) submission.submissionLink = submissionLink;
-    if (submissionText !== undefined) submission.submissionText = submissionText;
+    const updateFields = { updatedAt: new Date() };
+    if (submissionLink !== undefined) updateFields.submissionLink = submissionLink;
+    if (submissionText !== undefined) updateFields.submissionText = submissionText;
 
-    await submission.save();
+    await submissionsCol.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+    
+    const updatedSubmission = await submissionsCol.findOne({ _id: new ObjectId(id) });
 
     res.status(200).json({
       success: true,
       message: 'Submission updated successfully',
-      submission,
+      submission: updatedSubmission,
     });
   } catch (error) {
     console.error('Error in updateSubmission:', error);
@@ -280,16 +353,59 @@ const updateSubmission = async (req, res) => {
 const getMyContestSubmissions = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const contestsCol = getCol('contests');
+    const submissionsCol = getCol('submissions');
 
     // Find all contests created by this user
-    const constests = await Contest.find({ creatorId: userId }).select('_id');
-    const contestIds = constests.map(c => c._id);
+    const contests = await contestsCol.find(
+        { creatorId: new ObjectId(userId) },
+        { projection: { _id: 1 } }
+    ).toArray();
+    
+    const contestIds = contests.map(c => c._id);
 
     // Find submissions for these contests
-    const submissions = await Submission.find({ contestId: { $in: contestIds } })
-      .populate('userId', 'name email photoURL')
-      .populate('contestId', 'name deadline winnerUserId image')
-      .sort({ createdAt: -1 });
+    const pipeline = [
+        { $match: { contestId: { $in: contestIds } } },
+        // Populate User (submitter)
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'userId',
+                foreignField: '_id',
+                as: 'user'
+            }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        // Populate Contest
+        {
+            $lookup: {
+                from: 'contests',
+                localField: 'contestId',
+                foreignField: '_id',
+                as: 'contest'
+            }
+        },
+        { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
+        
+        {
+            $project: {
+                'user.password': 0, 'user.__v': 0,
+                // keep needed contest fields
+                'contest.description': 0, 'contest.taskInstructions': 0
+            }
+        },
+        {
+            $addFields: {
+                userId: '$user',
+                contestId: '$contest'
+            }
+        },
+        { $project: { user: 0, contest: 0 } },
+        { $sort: { createdAt: -1 } }
+    ];
+
+    const submissions = await submissionsCol.aggregate(pipeline).toArray();
 
     res.status(200).json({
       success: true,

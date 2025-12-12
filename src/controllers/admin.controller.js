@@ -1,15 +1,23 @@
-const User = require('../models/User.model');
-const Contest = require('../models/Contest.model');
+const { client } = require('../config/db');
+
+// Helper to get collection
+const getCol = (name) => {
+  const db = client.db(process.env.DB_NAME || 'contest-arena');
+  return db.collection(name);
+};
 
 /**
  * GET /admin/stats
  */
 const getAdminStats = async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const totalContests = await Contest.countDocuments();
-    const pendingContests = await Contest.countDocuments({ status: 'pending' });
-    const confirmedContests = await Contest.countDocuments({ status: 'confirmed' });
+    const usersCol = getCol('users');
+    const contestsCol = getCol('contests');
+
+    const totalUsers = await usersCol.countDocuments();
+    const totalContests = await contestsCol.countDocuments();
+    const pendingContests = await contestsCol.countDocuments({ status: 'pending' });
+    const confirmedContests = await contestsCol.countDocuments({ status: 'confirmed' });
 
     res.status(200).json({
       success: true,
