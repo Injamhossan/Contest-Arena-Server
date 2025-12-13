@@ -11,22 +11,22 @@ const {
 const roleChecker = require('../middleware/roleChecker');
 const verifyJWT = require('../middleware/verifyJWT');
 
-// POST /payments/create-intent - Create payment intent
+// Create payment intent
 router.post('/create-intent', verifyJWT, createPaymentIntent);
 
-// POST /payments/confirm - Confirm payment
+// Confirm payment
 router.post('/confirm', verifyJWT, confirmPayment);
 
-// POST /payments/webhook - Stripe webhook (no auth needed, uses signature)
+// Stripe webhook (no auth needed, uses signature)
 router.post('/webhook', handleWebhook);
 
-// GET /payments/me - Get my payments
+// Get my payments
 router.get('/me', verifyJWT, getMyPayments);
 
-// GET /payments/creator-users - Get payments from users for my contests
+// Get payments from users for my contests
 router.get('/creator-users', verifyJWT, roleChecker('creator'), getCreatorUserPayments);
 
-// GET /payments - Get all payments (Admin only)
+// Get all payments (Admin only)
 router.get('/', verifyJWT, roleChecker('admin'), getAllPayments);
 
 module.exports = router;

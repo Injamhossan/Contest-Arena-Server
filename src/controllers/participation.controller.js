@@ -159,10 +159,7 @@ const getMyParticipations = async (req, res) => {
     const submissionsCol = getCol('submissions');
 
     let sortOption = { createdAt: -1 };
-    
-    // Note: sorting by populated field in simple find is not possible directly correctly without aggregation.
-    // If sort is 'deadline', we need to lookup contest first.
-    
+
     const pipeline = [
       { $match: { userId: new ObjectId(userId) } },
       {
@@ -174,17 +171,12 @@ const getMyParticipations = async (req, res) => {
         }
       },
       { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
-      // Select specific fields for contest to match "select" in mongoose if needed, or keep all.
-      // We populate `contestId` with the contest object.
-      // AND we also add `contest` field because the frontend uses `item.contest` for display 
-      // but `item.contestId` for filtering (inconsistent frontend code).
       {
          $addFields: {
-             contestId: '$contest', // Mongoose populates into the field itself
-             contest: '$contest'    // Add alias for frontend display
+             contestId: '$contest',
+             contest: '$contest'
          }
       },
-      // { $project: { contest: 0 } } // Removed to keep 'contest' field for frontend display
     ];
 
     if (sort === 'deadline') {
@@ -243,21 +235,21 @@ const getContestSubmissions = async (req, res) => {
         {
             $lookup: {
                 from: 'users',
-                localField: 'userId', // The field in submission
+                localField: 'userId',
                 foreignField: '_id',
                 as: 'user'
             }
         },
         { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-        { 
+        {
             $project: {
-                'user.password': 0, 
-                'user.__v': 0 
+                'user.password': 0,
+                'user.__v': 0
             }
         },
         {
             $addFields: {
-                userId: '$user' // Replace userId ID with User Object
+                userId: '$user'
             }
         },
         { $project: { user: 0 } },
@@ -367,7 +359,6 @@ const getMyContestSubmissions = async (req, res) => {
     // Find submissions for these contests
     const pipeline = [
         { $match: { contestId: { $in: contestIds } } },
-        // Populate User (submitter)
         {
             $lookup: {
                 from: 'users',
@@ -377,7 +368,6 @@ const getMyContestSubmissions = async (req, res) => {
             }
         },
         { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-        // Populate Contest
         {
             $lookup: {
                 from: 'contests',

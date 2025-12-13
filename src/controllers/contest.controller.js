@@ -45,7 +45,6 @@ const getAllContests = async (req, res) => {
       { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: limitVal },
-      // Populate creatorId
       {
         $lookup: {
           from: 'users',
@@ -63,8 +62,6 @@ const getAllContests = async (req, res) => {
           'creator.__v': 0
         }
       },
-      // Map creator back to creatorId field if needed to match previous response structure
-      // or just keep it as 'creator' object. Previous response had populated object in 'creatorId'.
       {
         $addFields: {
            creatorId: '$creator'
@@ -191,21 +188,9 @@ const getContestById = async (req, res) => {
     }
 
     // Dynamic participant count
-    // Use stored string ID or object Id matching
-    // Typically submission has contestId as ObjectId if strict, or String.
-    // Let's assume ObjectId or String content. safe to check both or standardize.
-    // Ideally assume ObjectId.
-    // If submission stored contestId as string, we need to match string.
-    // Previous code didn't specify. Mongoose normally casts string in query to ObjectId if schema says so.
-    // But in createParticipation (Step 66), it creates with contestId (from body).
-    // I should check strictness later. For now assume it matches what's stored.
-    
-    // We can count safely by converting `id` to string or ObjectId if needed.
-    // For now assuming stored as ObjectId.
-    const submissionCount = await submissionsCol.countDocuments({ contestId: new ObjectId(id) }); 
-    // Fallback if 0 found? maybe stored as string?
-    // const submissionCountString = await submissionsCol.countDocuments({ contestId: id });
-    
+
+    const submissionCount = await submissionsCol.countDocuments({ contestId: new ObjectId(id) });
+
     contest.participantsCount = submissionCount;
 
     res.status(200).json({
@@ -443,10 +428,9 @@ const updateContestStatus = async (req, res) => {
       { $set: { status, updatedAt: new Date() } },
       { returnDocument: 'after' }
     );
-    
+
     // Check if result returned a document (depends on driver version)
-    // In strict mode or new driver, this might differ. 
-    // Standardizing:
+
     const updatedContest = await contestsCol.findOne({_id: new ObjectId(id)});
 
     if (!updatedContest) {

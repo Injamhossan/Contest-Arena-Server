@@ -63,7 +63,7 @@ const contestSchema = new mongoose.Schema(
     participationLimit: {
       type: Number,
       required: true,
-      default: 0, // 0 means unlimited, or we can enforce a limit. User said "oita lekhar option diba", so creator sets it.
+      default: 0,
     },
     winnerUserId: {
       type: mongoose.Schema.Types.ObjectId,
