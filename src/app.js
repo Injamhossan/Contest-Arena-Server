@@ -24,12 +24,15 @@ app.use((req, res, next) => {
 
 // CORS configuration for React frontend
 const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://contest-arena-ih.web.app'];
+  ? process.env.FRONTEND_URL.split(',').map(url => url.trim().replace(/\/$/, ''))
+  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://contest-arena-ih.web.app', 'https://contest-arena-ih.web.app'];
 
 // Ensure deployed origin is always allowed
 if (!allowedOrigins.includes('https://contest-arena-ih.web.app')) {
   allowedOrigins.push('https://contest-arena-ih.web.app');
+}
+if (!allowedOrigins.includes('https://contest-arena-ih.firebaseapp.com')) {
+  allowedOrigins.push('https://contest-arena-ih.firebaseapp.com');
 }
 
 app.use(
@@ -43,7 +46,9 @@ app.use(
           return callback(null, true);
         }
       }
-      if (allowedOrigins.includes(origin)) {
+      
+      // Check if the origin (or origin + /) is in the allowed list
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes(origin + '/')) {
         return callback(null, true);
       }
       

@@ -52,6 +52,12 @@ const createJWT = async (req, res) => {
       if (name) updateData.name = name;
       if (photoURL) updateData.photoURL = photoURL;
       
+      // Allow updating role if provided (e.g. during Google Sign-in with explicit role selection)
+      const validRoles = ['user', 'creator', 'admin'];
+      if (role && validRoles.includes(role)) {
+        updateData.role = role;
+      }
+      
       if (Object.keys(updateData).length > 0) {
         updateData.updatedAt = new Date();
         const result = await usersCollection.findOneAndUpdate(
