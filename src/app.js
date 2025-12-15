@@ -23,9 +23,14 @@ app.use((req, res, next) => {
 });
 
 // CORS configuration for React frontend
-const allowedOrigins = process.env.FRONTEND_URL 
+const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'];
+  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'https://contest-arena-ih.web.app'];
+
+// Ensure deployed origin is always allowed
+if (!allowedOrigins.includes('https://contest-arena-ih.web.app')) {
+  allowedOrigins.push('https://contest-arena-ih.web.app');
+}
 
 app.use(
   cors({

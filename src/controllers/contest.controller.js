@@ -586,7 +586,8 @@ const getRecentWinners = async (req, res) => {
           'winnerUserId.name': 1,
           'winnerUserId.photoURL': 1,
           name: 1,
-          contestType: 1
+          contestType: 1,
+          prizeMoney: 1
         }
       }
     ];

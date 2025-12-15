@@ -295,7 +295,7 @@ const getMyPayments = async (req, res) => {
       { $unwind: { path: '$contest', preserveNullAndEmptyArrays: true } },
       {
         $project: {
-          'contest.description': 0, 'contest.taskInstructions': 0, // Exclude heavy fields usually not needed for lists
+          'contest.description': 0, 'contest.taskInstructions': 0,
         }
       },
       {
@@ -310,7 +310,6 @@ const getMyPayments = async (req, res) => {
 
     const payments = await paymentsCol.aggregate(pipeline).toArray();
 
-    // Filter to show unique contests, prioritizing completed payments
     const uniquePaymentsMap = new Map();
     
     payments.forEach(payment => {
@@ -321,11 +320,9 @@ const getMyPayments = async (req, res) => {
         uniquePaymentsMap.set(contestId, payment);
       } else {
         const existing = uniquePaymentsMap.get(contestId);
-        // If current is completed and existing is not, replace it
         if (payment.paymentStatus === 'completed' && existing.paymentStatus !== 'completed') {
           uniquePaymentsMap.set(contestId, payment);
         }
-        // If both are same status or neither is completed, we already have the latest one due to sort desc
       }
     });
 
@@ -357,11 +354,9 @@ const getAllPayments = async (req, res) => {
     const skip = (page - 1) * limit;
     const paymentsCol = getCol('payments');
 
-    // Similar logic as previous implementation: fetch all (or large set), populate, unique filter
-    
+
     const pipeline = [
       { $sort: { createdAt: -1 } },
-      // Populate userId
       {
         $lookup: {
           from: 'users',
