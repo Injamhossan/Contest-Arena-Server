@@ -2,7 +2,7 @@ const { client } = require('../config/db');
 
 // Helper to get collection
 const getCol = (name) => {
-  const db = client.db(process.env.DB_NAME || 'contest_arena');
+  const db = client.db(process.env.DB_NAME || 'test');
   return db.collection(name);
 };
 
