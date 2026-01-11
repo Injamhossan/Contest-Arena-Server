@@ -1,3 +1,6 @@
+const path = require('path');
+// Load .env.local first to allow overrides
+require('dotenv').config({ path: path.join(__dirname, '../.env.local') });
 require('dotenv').config();
 const app = require('./app');
 const { connectDB } = require('./config/db');
